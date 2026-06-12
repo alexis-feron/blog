@@ -1,9 +1,41 @@
 # Production compose - all env vars must be set (no defaults with sensitive values)
 # Usage: docker compose -f docker-compose.prod.yml up -d
+#
+# Public surface is reduced to a single entrypoint: the Traefik reverse proxy
+# listens on :80 and routes traffic to the frontend (default host) and the
+# backend (PathPrefix `/api`). The frontend and backend containers no longer
+# publish ports on the host - they are only reachable on the internal Docker
+# network and answer Traefik over plain HTTP.
+#
+# Required env vars (in addition to the secrets below):
+#   DOMAIN        public hostname served by Traefik          (e.g. blog.example.com)
+#   API_URL       public URL the browser uses for the API    (e.g. http://blog.example.com/api)
+#   FRONTEND_URL  public URL of the site, used for CORS       (e.g. http://blog.example.com)
 
 version: "3.9"
 
 services:
+  # ── Edge / Reverse proxy ────────────────────────────────
+  traefik:
+    image: traefik:v3.3
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--ping=true"
+      # No dashboard / insecure API exposed in production
+    ports:
+      - "80:80"
+    volumes:
+      # Read-only access to the Docker socket for service discovery
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
   # ── Infrastructure ──────────────────────────────────────
 
   postgres:
@@ -69,8 +101,18 @@ services:
       NODE_ENV: production
       FRONTEND_URL: ${FRONTEND_URL}
       RUN_MIGRATIONS: "true"
-    ports:
-      - "3001:3001"
+    # No published ports - only reachable through Traefik on the internal network
+    expose:
+      - "3001"
+    labels:
+      - "traefik.enable=true"
+      # Public API is served under /api and stripped before reaching the backend
+      - "traefik.http.routers.backend.rule=Host(`${DOMAIN}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend.entrypoints=web"
+      - "traefik.http.routers.backend.priority=10"
+      - "traefik.http.routers.backend.middlewares=api-stripprefix"
+      - "traefik.http.middlewares.api-stripprefix.stripprefix.prefixes=/api"
+      - "traefik.http.services.backend.loadbalancer.server.port=3001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,9 +128,19 @@ services:
       dockerfile: Dockerfile
       target: production
     environment:
+      # Public URL used by the browser (must reach Traefik, e.g. http://DOMAIN/api)
       NEXT_PUBLIC_API_URL: ${API_URL}
-    ports:
-      - "3000:3000"
+      # Internal URL used for SSR / server actions - bypasses the proxy
+      INTERNAL_API_URL: http://backend:3001
+    # No published ports - only reachable through Traefik on the internal network
+    expose:
+      - "3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.http.routers.frontend.priority=1"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
     depends_on:
       - backend
     restart: unless-stopped
@@ -99,9 +151,33 @@ services:
     image: prom/prometheus:latest
     volumes:
       - ./infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=15d"
+    depends_on:
+      - alertmanager
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    # Alertmanager does not expand env vars in its config, so we materialise the
+    # Discord webhook URL into a file at startup and reference it with
+    # `webhook_url_file`. This is what fixes the
+    # `unsupported scheme "" for URL` crash caused by an unsubstituted
+    # ${DISCORD_WEBHOOK_URL} literal.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        printf '%s' "$$DISCORD_WEBHOOK_URL" > /tmp/discord_webhook_url
+        exec /bin/alertmanager \
+          --config.file=/etc/alertmanager/alertmanager.yml \
+          --storage.path=/alertmanager
+    environment:
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+    volumes:
+      - ./infra/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     restart: unless-stopped
 
   grafana:
@@ -109,8 +185,15 @@ services:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
       GF_USERS_ALLOW_SIGN_UP: "false"
-    ports:
-      - "3003:3000"
+      # Served behind Traefik on a dedicated sub-host
+      GF_SERVER_ROOT_URL: http://grafana.${DOMAIN}
+    expose:
+      - "3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.${DOMAIN}`)"
+      - "traefik.http.routers.grafana.entrypoints=web"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
