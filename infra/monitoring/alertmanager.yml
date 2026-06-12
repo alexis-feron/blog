@@ -32,7 +32,9 @@ inhibit_rules:
 receivers:
   - name: discord-default
     discord_configs:
-      - webhook_url: "${DISCORD_WEBHOOK_URL}"
+      # Alertmanager does not expand env vars in its config; the webhook URL is
+      # written to this file by the container entrypoint from $DISCORD_WEBHOOK_URL.
+      - webhook_url_file: /tmp/discord_webhook_url
         title: |
           {{ if eq .Status "firing" }}🔴 {{ else }}✅ {{ end }}
           [{{ .CommonLabels.severity | toUpper }}] {{ .CommonAnnotations.summary }}
@@ -46,7 +48,7 @@ receivers:
 
   - name: discord-critical
     discord_configs:
-      - webhook_url: "${DISCORD_WEBHOOK_URL}"
+      - webhook_url_file: /tmp/discord_webhook_url
         title: |
           🚨 CRITICAL - {{ .CommonAnnotations.summary }}
         message: |

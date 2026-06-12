@@ -110,8 +110,18 @@ services:
       - "9093:9093"
     volumes:
       - ./infra/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-    command:
-      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    # Alertmanager does not expand env vars in its config, so we write the
+    # Discord webhook URL to a file at startup and reference it via
+    # `webhook_url_file`. This prevents the `unsupported scheme "" for URL`
+    # crash that happened when ${DISCORD_WEBHOOK_URL} was left unsubstituted.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        printf '%s' "$$DISCORD_WEBHOOK_URL" > /tmp/discord_webhook_url
+        exec /bin/alertmanager \
+          --config.file=/etc/alertmanager/alertmanager.yml \
+          --storage.path=/alertmanager
     environment:
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-https://discord.com/api/webhooks/dev/placeholder}
     depends_on:
