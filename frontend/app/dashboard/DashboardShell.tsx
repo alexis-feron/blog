@@ -85,6 +85,19 @@ export default function DashboardShell({ initialPosts }: DashboardShellProps) {
     setEditing(null);
   }
 
+  // When the post currently being edited is deleted, close the edit form so the
+  // user cannot submit an update against a post that no longer exists (which
+  // would otherwise fail with "Post not found").
+  function handleDeleted(id: string) {
+    if (editing?.id === id) {
+      isDirtyRef.current = false;
+      setEditing(null);
+    }
+    if (pendingEdit && pendingEdit !== 'new' && pendingEdit.id === id) {
+      setPendingEdit(null);
+    }
+  }
+
   const isEditing = editing !== null;
 
   return (
@@ -146,6 +159,7 @@ export default function DashboardShell({ initialPosts }: DashboardShellProps) {
           posts={posts}
           onPostsChange={setPosts}
           onRequestEdit={requestEdit}
+          onDeleted={handleDeleted}
         />
       </div>
     </div>
