@@ -3,11 +3,14 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select } from '@/components/ui/select';
 import type { Post, PostStatus } from '@/types';
 import { Pencil, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { deletePost } from './actions';
+
+type StatusFilter = 'ALL' | PostStatus;
 
 const MONTHS_FR = [
   'jan.',
@@ -45,16 +48,31 @@ interface PostListProps {
   readonly posts: Post[];
   readonly onPostsChange: (updater: (prev: Post[]) => Post[]) => void;
   readonly onRequestEdit: (post: Post) => void;
+  readonly onDeleted?: (id: string) => void;
 }
+
+const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
+  { value: 'ALL', label: 'Tous les statuts' },
+  { value: 'PUBLISHED', label: 'Publié' },
+  { value: 'DRAFT', label: 'Brouillon' },
+  { value: 'ARCHIVED', label: 'Archivé' },
+];
 
 export default function PostList({
   posts,
   onPostsChange,
   onRequestEdit,
+  onDeleted,
 }: PostListProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+
+  const visiblePosts =
+    statusFilter === 'ALL'
+      ? posts
+      : posts.filter((p) => p.status === statusFilter);
 
   async function handleDelete(id: string) {
     setDeleting(true);
@@ -67,23 +85,41 @@ export default function PostList({
     }
     setConfirmDeleteId(null);
     onPostsChange((prev) => prev.filter((p) => p.id !== id));
+    // Let the parent close the edit form if it was editing the deleted post.
+    onDeleted?.(id);
   }
 
   return (
     <Card>
       <CardHeader className="pb-4">
-        <CardTitle className="text-base">
-          Mes articles ({posts.length})
-        </CardTitle>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-base">
+            Mes articles ({visiblePosts.length})
+          </CardTitle>
+          <Select
+            aria-label="Filtrer par statut"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            className="h-8 w-auto text-xs"
+          >
+            {STATUS_FILTERS.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </div>
       </CardHeader>
       <CardContent>
-        {posts.length === 0 ? (
+        {visiblePosts.length === 0 ? (
           <p className="text-muted-foreground text-sm py-2">
-            Aucun article pour l&apos;instant.
+            {posts.length === 0
+              ? "Aucun article pour l'instant."
+              : 'Aucun article pour ce statut.'}
           </p>
         ) : (
           <ul className="flex flex-col gap-3 list-none p-0 m-0">
-            {posts.map((post) => {
+            {visiblePosts.map((post) => {
               const isOptimistic = post.id.startsWith('optimistic-');
               const isConfirming = confirmDeleteId === post.id;
 

@@ -1,0 +1,48 @@
+---
+# ── Application ───────────────────────────────────────────────
+app_name: ynov-blog
+app_dir: /opt/blog
+deploy_user: deploy
+
+# Public hostname served by the Traefik reverse proxy (override per env).
+# FRONTEND_URL / API_URL default to https://{{ app_domain }} and
+# https://{{ app_domain }}/api in roles/app/templates/env.j2.
+app_domain: blog.example.com
+
+# Secrets below are expected from an ansible-vault encrypted file
+# (e.g. group_vars/<env>/vault.yml), never committed in clear text:
+#   vault_postgres_user / vault_postgres_password / vault_postgres_db
+#   vault_redis_password
+#   vault_minio_user / vault_minio_password
+#   vault_jwt_secret / vault_jwt_refresh_secret
+#   vault_grafana_password
+#   vault_discord_webhook_url   # Discord webhook used by Alertmanager
+#   vault_ghcr_token            # GHCR pull token
+
+# Docker image registry
+registry: ghcr.io
+registry_owner: "{{ lookup('env', 'GITHUB_REPOSITORY_OWNER') | default('alexis-feron') }}"
+image_tag: "{{ lookup('env', 'IMAGE_TAG') | default('staging') }}"
+
+# ── Docker ────────────────────────────────────────────────────
+docker_compose_version: "2.24.5"
+
+# ── System ────────────────────────────────────────────────────
+# Packages installed on every server
+base_packages:
+  - curl
+  - wget
+  - git
+  - unzip
+  - htop
+  - ufw
+  - fail2ban
+  - ca-certificates
+  - gnupg
+  - lsb-release
+
+# ── SSH hardening ─────────────────────────────────────────────
+ssh_port: 22
+ssh_permit_root_login: "no"
+ssh_password_authentication: "no"
+ssh_pubkey_authentication: "yes"

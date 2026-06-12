@@ -53,11 +53,19 @@ function CloseIcon() {
   );
 }
 
+interface MobileMenuProps {
+  readonly links: readonly NavLink[];
+  readonly authenticated: boolean;
+  readonly onLogout: () => void;
+  readonly loggingOut: boolean;
+}
+
 export default function MobileMenu({
   links,
-}: {
-  readonly links: readonly NavLink[];
-}) {
+  authenticated,
+  onLogout,
+  loggingOut,
+}: MobileMenuProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -86,6 +94,21 @@ export default function MobileMenu({
                 </Link>
               </li>
             ))}
+            {authenticated && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    onLogout();
+                  }}
+                  disabled={loggingOut}
+                  className={`${btnBase} w-full justify-start px-4 py-2 disabled:opacity-50`}
+                >
+                  {loggingOut ? 'Déconnexion…' : 'Déconnexion'}
+                </button>
+              </li>
+            )}
           </ul>
         </div>
       )}
