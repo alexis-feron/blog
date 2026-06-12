@@ -47,13 +47,27 @@ export class LoggingInterceptor implements NestInterceptor {
             `${method} ${url} ${res.statusCode} +${durationMs}ms`,
           );
         },
-        error: (err: { status?: number; message?: string }) => {
+        error: (err: { status?: number; message?: string; stack?: string }) => {
           const statusCode = err.status ?? 500;
           const message = err.message ?? "Internal error";
           const durationMs = Date.now() - start;
 
-          this.logger.error(
-            { method, url, statusCode, durationMs, requestId, error: message },
+          // Client errors (4xx) are expected outcomes (bad input, auth, not
+          // found) and must not pollute the error stream that drives alerting.
+          // Only server errors (5xx) are logged at error level, with the stack.
+          const isServerError = statusCode >= 500;
+          const logLevel = isServerError ? "error" : "warn";
+
+          this.logger[logLevel](
+            {
+              method,
+              url,
+              statusCode,
+              durationMs,
+              requestId,
+              error: message,
+              ...(isServerError && err.stack ? { stack: err.stack } : {}),
+            },
             `${method} ${url} ${statusCode} +${durationMs}ms - ${message}`,
           );
         },

@@ -44,8 +44,23 @@ const isProduction = process.env.NODE_ENV === "production";
               },
             },
 
-        // Minimal level in production, verbose in dev
-        level: isProduction ? "info" : "debug",
+        // Level is overridable via LOG_LEVEL; otherwise minimal in prod, verbose in dev
+        level: process.env.LOG_LEVEL ?? (isProduction ? "info" : "debug"),
+
+        // Never leak secrets into the logs (tokens, passwords, cookies).
+        // Matching paths are replaced with [Redacted].
+        redact: {
+          paths: [
+            "req.headers.authorization",
+            "req.headers.cookie",
+            'req.headers["set-cookie"]',
+            "*.password",
+            "*.token",
+            "*.accessToken",
+            "*.refreshToken",
+          ],
+          censor: "[Redacted]",
+        },
 
         // Serialise only the fields we care about
         serializers: {
